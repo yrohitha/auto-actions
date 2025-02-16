@@ -2,7 +2,7 @@ name: Auto Label
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, reopened]
     paths:
       - '**/*'
 
@@ -30,12 +30,9 @@ jobs:
             
             // Define path-to-label mapping
             const pathLabels = {
-              'dbt/': 'dbt',
-              'infrastructure/terraform/': 'infrastructure',
+              'dbt/': 'L: dbt',
+              'infrastructure/terraform/': 'L: terraform',
               'docs/': 'documentation',
-              'scripts/': 'engineering',
-              '.github/': 'github',
-              'vscode/': 'vscode'
             };
             
             // Check each changed file
@@ -48,13 +45,7 @@ jobs:
               
               // Special cases based on file extensions
               if (file.filename.endsWith('.py')) {
-                labels.add('python');
-              }
-              if (file.filename.endsWith('.sql')) {
-                labels.add('sql');
-              }
-              if (file.filename.includes('test')) {
-                labels.add('test');
+                labels.add('L: python');
               }
             }
             
