@@ -1,0 +1,60 @@
+name: Auto Label
+
+on:
+  pull_request:
+    types: [opened, reopened]
+    paths:
+      - '**/*'
+
+jobs:
+  auto-label:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Label based on modified files
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const changedFiles = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            
+            let labels = new Set();
+            
+            // Define path-to-label mapping
+            const pathLabels = {
+              'dbt/': 'L: dbt',
+              'infrastructure/terraform/': 'L: terraform',
+              'docs/': 'documentation',
+            };
+            
+            // Check each changed file
+            for (const file of changedFiles.data) {
+              for (const [path, label] of Object.entries(pathLabels)) {
+                if (file.filename.startsWith(path)) {
+                  labels.add(label);
+                }
+              }
+              
+              // Special cases based on file extensions
+              if (file.filename.endsWith('.py')) {
+                labels.add('L: python');
+              }
+            }
+            
+            // Add labels to PR
+            if (labels.size > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: Array.from(labels)
+              });
+            }

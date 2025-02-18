@@ -4,12 +4,15 @@ on:
   pull_request:
     types: [opened, reopened]
 
+permissions:
+  pull-requests: write  # ✅ This gives permission to modify PRs
+
 jobs:
   auto-assign:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Assign PR to author
+      - name: Auto-assign PR to author
         run: |
           curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
           -H "Content-Type: application/json" \
