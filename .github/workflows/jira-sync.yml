@@ -1,0 +1,188 @@
+name: Jira Issue Sync
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled]
+  issue_comment:
+    types: [created, edited, deleted]
+
+jobs:
+  sync-to-jira:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install Dependencies
+        run: |
+          npm install @octokit/rest
+          npm install jira-connector
+
+      - name: Sync Issue to Jira
+        uses: ./jira-sync-action
+        with:
+          jira-host: ${{ secrets.JIRA_HOST }}
+          jira-email: ${{ secrets.JIRA_EMAIL }}
+          jira-api-token: ${{ secrets.JIRA_API_TOKEN }}
+          jira-project: ${{ secrets.JIRA_PROJECT }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# File: jira-sync-action/action.yml
+name: 'Jira Issue Sync Action'
+description: 'Syncs GitHub issues with Jira tickets'
+inputs:
+  jira-host:
+    description: 'Jira host URL'
+    required: true
+  jira-email:
+    description: 'Jira account email'
+    required: true
+  jira-api-token:
+    description: 'Jira API token'
+    required: true
+  jira-project:
+    description: 'Jira project key'
+    required: true
+  github-token:
+    description: 'GitHub token'
+    required: true
+runs:
+  using: 'node16'
+  main: 'index.js'
+
+# File: jira-sync-action/index.js
+const core = require('@actions/core');
+const github = require('@actions/github');
+const JiraClient = require('jira-connector');
+
+async function run() {
+  try {
+    // Get inputs
+    const jiraHost = core.getInput('jira-host');
+    const jiraEmail = core.getInput('jira-email');
+    const jiraToken = core.getInput('jira-api-token');
+    const jiraProject = core.getInput('jira-project');
+    const githubToken = core.getInput('github-token');
+
+    // Initialize Jira client
+    const jira = new JiraClient({
+      host: jiraHost,
+      basic_auth: {
+        email: jiraEmail,
+        api_token: jiraToken
+      }
+    });
+
+    // Initialize GitHub client
+    const octokit = github.getOctokit(githubToken);
+    const context = github.context;
+
+    // Handle different event types
+    if (context.eventName === 'issues') {
+      const issue = context.payload.issue;
+      
+      // Create or update Jira issue
+      const jiraIssue = await createOrUpdateJiraIssue(jira, jiraProject, issue);
+      
+      // Add comment to GitHub issue with Jira reference
+      await octokit.issues.createComment({
+        ...context.repo,
+        issue_number: issue.number,
+        body: `✅ Synced with Jira: ${jiraHost}/browse/${jiraIssue.key}`
+      });
+    }
+    
+    if (context.eventName === 'issue_comment') {
+      await syncComment(jira, context.payload.comment, context.payload.issue);
+    }
+    
+  } catch (error) {
+    core.setFailed(error.message);
+  }
+}
+
+async function createOrUpdateJiraIssue(jira, projectKey, githubIssue) {
+  // Check if Jira issue already exists (look for reference in GitHub issue body)
+  const jiraKeyMatch = githubIssue.body?.match(/JIRA-\d+/);
+  
+  if (jiraKeyMatch) {
+    // Update existing Jira issue
+    const jiraKey = jiraKeyMatch[0];
+    await jira.issue.updateIssue({
+      issueKey: jiraKey,
+      fields: {
+        summary: githubIssue.title,
+        description: updateJiraDescription(githubIssue)
+      }
+    });
+    return { key: jiraKey };
+  } else {
+    // Create new Jira issue
+    return await jira.issue.createIssue({
+      fields: {
+        project: { key: projectKey },
+        summary: githubIssue.title,
+        description: createJiraDescription(githubIssue),
+        issuetype: { name: 'Task' },
+        labels: ['github-sync']
+      }
+    });
+  }
+}
+
+function createJiraDescription(githubIssue) {
+  return `
+*Created from GitHub Issue ${githubIssue.number}*
+[View on GitHub|${githubIssue.html_url}]
+
+${githubIssue.body || ''}
+
+----
+h6. GitHub Details
+* Creator: ${githubIssue.user.login}
+* Created: ${githubIssue.created_at}
+* Labels: ${githubIssue.labels.map(l => l.name).join(', ')}
+`;
+}
+
+function updateJiraDescription(githubIssue) {
+  return `
+*Updated from GitHub Issue ${githubIssue.number}*
+[View on GitHub|${githubIssue.html_url}]
+
+${githubIssue.body || ''}
+
+----
+h6. GitHub Details
+* Last Updated: ${githubIssue.updated_at}
+* State: ${githubIssue.state}
+* Labels: ${githubIssue.labels.map(l => l.name).join(', ')}
+`;
+}
+
+async function syncComment(jira, comment, issue) {
+  // Find Jira issue key in the issue body
+  const jiraKeyMatch = issue.body?.match(/JIRA-\d+/);
+  if (!jiraKeyMatch) return;
+  
+  const jiraKey = jiraKeyMatch[0];
+  
+  // Add comment to Jira
+  await jira.issue.addComment({
+    issueKey: jiraKey,
+    body: `
+*Comment from GitHub @${comment.user.login}*
+${comment.body}
+
+[View comment on GitHub|${comment.html_url}]
+`
+  });
+}
+
+run();
