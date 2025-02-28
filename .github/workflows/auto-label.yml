@@ -48,6 +48,16 @@ jobs:
                 labels.add('L: python');
               }
             }
+
+            // Add environment promotion labels based on target branch
+            const targetBranch = context.payload.pull_request.base.ref;
+            
+            switch (targetBranch) {
+              case 'env/uat':
+              case 'env/prod':
+                labels.add('promotion to upper environment');
+                break;
+            }
             
             // Add labels to PR
             if (labels.size > 0) {
