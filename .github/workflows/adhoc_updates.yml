@@ -1,0 +1,17 @@
+name: Ad-hoc updates
+
+on:
+  workflow_dispatch:
+
+jobs:
+  labels:
+    name: Update Labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - uses: lannonbr/issue-label-manager-action@4.0.0
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
