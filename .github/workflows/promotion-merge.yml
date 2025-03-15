@@ -1,0 +1,78 @@
+name: Promotion Merge Strategy
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+    branches:
+      - 'env/dev'
+      - 'env/uat'
+      - 'env/prod'
+
+jobs:
+  set-merge-strategy:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    
+    steps:
+      - name: Set merge strategy based on target branch
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const baseBranch = context.payload.pull_request.base.ref;
+            let message = '';
+            let labels = [];
+            
+            switch (baseBranch) {
+              case 'env/dev':
+                message = '📝 This PR targets `env/dev` branch and should be squash merged. Please ensure:\n\n' +
+                         '1. You select "Squash and merge" when merging this PR\n' +
+                         '2. All commits will be combined into a single commit\n\n' +
+                         'Note: Repository settings must be configured to allow squash merging.';
+                labels = ['squash-merge-required'];
+                break;
+              
+              case 'env/uat':
+              case 'env/prod':
+                message = '📝 This PR targets `' + baseBranch + '` branch and should be merged with a merge commit. Please ensure:\n\n' +
+                         '1. You select "Create a merge commit" when merging this PR\n' +
+                         '2. All commits will be preserved in the branch history\n\n' +
+                         'Note: This maintains a clear record of changes for production environments.';
+                labels = ['merge-commit-required'];
+                break;
+            }
+            
+            try {
+              // Add informative comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: message
+              });
+              
+              // Add appropriate label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labels
+              });
+              
+              // For UAT/PROD, add additional check requirements
+              if (baseBranch === 'env/uat' || baseBranch === 'env/prod') {
+                // Add a reminder about additional checks
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: '⚠️ **Additional Requirements for ' + baseBranch + '**\n\n' +
+                        '- Ensure all tests have passed\n' +
+                        '- Required reviews must be completed\n' +
+                        '- No pending changes requested\n' +
+                        '- All discussions must be resolved'
+                });
+              }
+            } catch (error) {
+              console.error('Error in setting merge strategy:', error);
+            }
